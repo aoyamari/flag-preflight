@@ -1,0 +1,5 @@
+.env
+snapshots/
+.venv/
+__pycache__/
+.preflight/
