@@ -4,3 +4,6 @@ snapshots/
 __pycache__/
 .preflight/
 .claude/skills/
+video/raw/
+video/build/
+video/demo.mp4
