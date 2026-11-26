@@ -143,10 +143,11 @@ li {{ font-size: 44px; line-height: 1.35; padding-left: 52px; position: relative
 li::before {{ content: attr(data-n); position: absolute; left: 0; color: #ff79c6; font-weight: 700;
               font-family: '{FONT_MONO}'; }}
 b {{ color: #fff; }}
+.stat {{ font-size: 42px; line-height: 1.4; color: #e6e6f0; }}
 .dim {{ color: #a6a6c0; font-size: 30px; line-height: 1.4; }}
 .url {{ font-family: '{FONT_MONO}'; font-size: 44px; color: #50fa7b; }}
 table {{ border-collapse: collapse; font-size: 46px; }}
-th, td {{ padding: 16px 40px; text-align: left; border-bottom: 2px solid #3a3a52; }}
+th, td {{ padding: 12px 40px; text-align: left; border-bottom: 2px solid #3a3a52; }}
 th {{ color: #a6a6c0; font-weight: 400; font-size: 32px; }}
 td.skill {{ color: #50fa7b; font-weight: 700; }}
 td.base {{ color: #ff6e6e; }}
@@ -156,7 +157,7 @@ td.base {{ color: #ff6e6e; }}
 def card_html(n: int) -> str:
     if n == 1:
         body = """
-<div class="kicker">Toggle Wars — Track 4: Agent Skills</div>
+<div class="kicker">Toggle Wars — Flagsmith hackathon</div>
 <h1>Flag Preflight</h1>
 <div class="lead">A flag change can look successful and reach <b>0 users</b>.<br>
 An agent without guardrails will flip <b>Production</b>.</div>
@@ -182,8 +183,14 @@ segments are hidden from <code>segment list</code>.</li>
 <tr><td>Tool calls</td><td class="skill">45</td><td class="base">133</td></tr>
 <tr><td>Cost</td><td class="skill">$1.57</td><td class="base">$2.34</td></tr>
 </table>
-<div class="dim">Claude Opus 5.5 · n=3 per scenario · small synthetic project · writes blocked by a shim.<br>
+<div class="stat">Median time: <b>~164 s</b> vs ~313 s (≈2× faster)<br>
+This demo run: <b>{DEMO_TOKENS:,} tokens</b></div>
+<div class="dim">Claude Opus 5.5 · n=3 per scenario · small synthetic project · writes blocked by a shim.
+Time: sum of per-scenario medians. Demo run: the 3 sessions on screen, {DEMO_CACHE_PCT:.0f}% cache reads.<br>
 Per scenario, cost is sometimes equal or higher with the skill. Methodology and sensitivity: bench/summary.md</div>"""
+        demo = json.loads((VIDEO.parent / "bench/demo_tokens.json").read_text())["total"]
+        body = body.replace("{DEMO_TOKENS:,}", f"{demo['total']:,}").replace(
+            "{DEMO_CACHE_PCT:.0f}", f"{100 * demo['cache_read_input_tokens'] / demo['total']:.0f}")
     elif n == 7:
         body = """
 <div class="kicker">Why Flagsmith is the engine</div>

@@ -49,6 +49,8 @@ Wall-clock seconds per session (`duration_ms` from the `claude -p` result), medi
 
 Baseline runs faster than every skill run of the same scenario: S4 r1 (13.8s, 0 Flagsmith calls, not correct), S5 r3 (10.9s, 0 Flagsmith calls, correct).
 
+**Demo run token count** (the 3 Claude Code sessions recorded for the demo video, 18 API calls, claude-opus-5-5): **715,476 tokens** = 48 input uncached + 45,102 cache creation + 666,473 cache read + 3,853 output (scene 3 156,349; scene 4 364,470; scene 5 194,657). From the transcripts' usage fields; details in `bench/demo_tokens.json`.
+
 ## Methodology
 
 - **Arms.** *with skill*: session started in the repository, skill installed at `.claude/skills/flag-preflight`. *baseline*: session started in an empty directory with the same Flagsmith CLI and credentials, no skill. Same prompt, model, tools (Bash, Read, Glob, Grep, Skill), no MCP servers, ≤30 turns, ≤$0.45 per session.

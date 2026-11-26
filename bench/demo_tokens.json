@@ -1,0 +1,55 @@
+{
+ "note": "Claude Code sessions recorded with VHS for video/demo.mp4 (scenes 3-5); summed per API response from the session transcripts' usage fields. Excludes any calls Claude Code makes outside the transcript.",
+ "scenes": [
+  {
+   "scene": 3,
+   "session": "329ec66c-d714-401b-be73-a26b1bba4a05",
+   "api_calls": 4,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "input_tokens": 10,
+   "cache_creation_input_tokens": 14747,
+   "cache_read_input_tokens": 140622,
+   "output_tokens": 970,
+   "total": 156349
+  },
+  {
+   "scene": 4,
+   "session": "c13bddd2-4fa5-44b3-8186-7ed4ee8b6aad",
+   "api_calls": 9,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "input_tokens": 24,
+   "cache_creation_input_tokens": 15692,
+   "cache_read_input_tokens": 346860,
+   "output_tokens": 1894,
+   "total": 364470
+  },
+  {
+   "scene": 5,
+   "session": "b648cbf4-b86c-4f60-9395-3313d252d285",
+   "api_calls": 5,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "input_tokens": 14,
+   "cache_creation_input_tokens": 14663,
+   "cache_read_input_tokens": 178991,
+   "output_tokens": 989,
+   "total": 194657
+  }
+ ],
+ "total": {
+  "input_tokens": 48,
+  "cache_creation_input_tokens": 45102,
+  "cache_read_input_tokens": 666473,
+  "output_tokens": 3853,
+  "total": 715476,
+  "api_calls": 18,
+  "models": [
+   "claude-opus-5-5"
+  ]
+ }
+}

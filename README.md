@@ -2,7 +2,7 @@
 
 **An agent skill that changes Flagsmith feature flags safely: simulate → human approval → apply → verify → rollback.**
 
-![Toggle Wars — Track 4: Agent Skills](https://img.shields.io/badge/Toggle%20Wars-Track%204%3A%20Agent%20Skills-5b3cc4) &nbsp; **Toggle Wars — Track 4: Agent Skills** · [Demo video](https://youtu.be/fRyY-tHPyBo)
+![Toggle Wars — Flagsmith hackathon](https://img.shields.io/badge/Toggle%20Wars-Flagsmith%20hackathon-5b3cc4) &nbsp; **Toggle Wars — Flagsmith hackathon** · [Demo video](https://youtu.be/fRyY-tHPyBo)
 
 ## The problem
 
@@ -71,6 +71,7 @@ Each run is a fresh `claude -p` session with the same prompt, model (Claude Opus
 - **Cost.** The skill is not cheaper in every scenario. Per scenario, cost is about equal in S2 and S4b and higher in S4, where the baseline often just reported "already on" in 1–2 calls. Uncached input tokens are also higher with the skill in most scenarios, because the skill's instructions are loaded. The total savings come from far fewer tool calls and cache reads.
 - **Time.** Median wall time is lower with the skill in S1–S4b (S1 30 s vs 74 s, S3 27 s vs 81 s) and equal in S5 (13 s each, no tools in either arm), but the baseline is not always slower: its fastest S4 run took 14 s because it found no flag tooling in its empty directory and stopped without doing the task, and the S4 medians are close (31 s vs 37 s).
 - **n=3** shows spread, not significance.
+- **Demo run token count.** The three Claude Code sessions in the demo video used **715,476 tokens** (Claude Opus 5.5, 18 API calls): 48 input uncached, 45,102 cache creation, 666,473 cache read (93%), 3,853 output. Counted from the sessions' own transcripts ([bench/demo_tokens.json](bench/demo_tokens.json)).
 - **Harness-aware runs.** 8 of 15 baseline runs read the write-blocking shim's source or remarked on the test setup. The 7 baseline runs that did not were **0/7 correct, 6/7 tried to write**.
 
 Full tables (token split, ranges), methodology, confounders and sensitivity: **[bench/summary.md](bench/summary.md)**.

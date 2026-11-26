@@ -12,7 +12,7 @@ Build: `video/build.py`; output `video/demo.mp4` (not committed).
 
 ## 1 · Title — 15s
 
-On screen: **Flag Preflight** · "A flag change can look successful and reach 0 users. An agent without guardrails will flip Production." · Toggle Wars — Track 4: Agent Skills
+On screen: **Flag Preflight** · "A flag change can look successful and reach 0 users. An agent without guardrails will flip Production." · Toggle Wars — Flagsmith hackathon
 
 > A flag change can look successful, and reach zero users.
 > And an AI agent without guardrails will flip Production.
@@ -60,7 +60,7 @@ The agent's first spec (`off`) is REFUSED, and it corrects it to `enabled=false`
 
 ## 6 · Benchmark — 20s
 
-On screen (from `bench/summary.md`, S1–S4b, 3 runs per scenario per arm): correct 15/15 vs 2/15 · Production write attempts 0/6 vs 3/6 · tool calls 45 vs 133 · cost $1.57 vs $2.34 · n=3, small synthetic project, per-scenario cost sometimes equal or higher.
+On screen (from `bench/summary.md`, S1–S4b, 3 runs per scenario per arm): correct 15/15 vs 2/15 · Production write attempts 0/6 vs 3/6 · tool calls 45 vs 133 · cost $1.57 vs $2.34 · median time ~164 s vs ~313 s (≈2× faster; sum of S1–S4b medians) · this demo run: 715,476 tokens (`bench/demo_tokens.json`) · n=3, small synthetic project, per-scenario cost sometimes equal or higher.
 
 > We benchmarked the same agent with and without the skill, three runs per scenario.
 > Correct: fifteen of fifteen, versus two.

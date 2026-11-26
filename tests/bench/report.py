@@ -134,6 +134,21 @@ def main() -> None:
         "Baseline runs faster than every skill run of the same scenario: "
         + (", ".join(f"{i} r{r['rep']} ({r['duration_s']:.1f}s, {r['flagsmith_cli']['calls']} Flagsmith calls, "
                      f"{'correct' if r['auto_correct'] else 'not correct'})" for i, r in faster) or "none") + ".",
+    ]
+    demo_file = Path(sys.argv[3]).parent / "demo_tokens.json"
+    if demo_file.exists():  # written by video/tokens.py from the demo video's session transcripts
+        demo = json.loads(demo_file.read_text())
+        dt = demo["total"]
+        per = "; ".join(f"scene {s['scene']} {s['total']:,}" for s in demo["scenes"])
+        out += [
+            "",
+            f"**Demo run token count** (the {len(demo['scenes'])} Claude Code sessions recorded for the demo video, "
+            f"{dt['api_calls']} API calls, {', '.join(dt['models'])}): **{dt['total']:,} tokens** = "
+            f"{dt['input_tokens']:,} input uncached + {dt['cache_creation_input_tokens']:,} cache creation + "
+            f"{dt['cache_read_input_tokens']:,} cache read + {dt['output_tokens']:,} output ({per}). "
+            f"From the transcripts' usage fields; details in `bench/demo_tokens.json`.",
+        ]
+    out += [
         "",
         "## Methodology",
         "",
