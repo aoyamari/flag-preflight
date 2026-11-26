@@ -39,6 +39,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +110,33 @@ class Env:
         doc = json.loads(cli("environment", "document", self.name, "-p", self.project))
         if doc.get("name") != self.name:
             raise Refused(f"asked for {self.name!r} but the document is for {doc.get('name')!r}")
+        return with_identity_overrides(self, doc)
+
+
+def with_identity_overrides(env: "Env", doc: dict) -> dict:
+    """Add identity overrides, which the Admin API's environment document leaves out.
+
+    The SDK document carries them, but needs each environment's server key; the Admin
+    API lists them per flag (`flag list --feature <f> --identities`), uncached. Only the
+    fields the engine reads are filled in; ids are derived so the document hash is stable.
+    """
+    if doc.get("identity_overrides"):
         return doc
+    by_identity: dict[str, list[dict]] = {}
+    for fs in doc["feature_states"]:
+        f = fs["feature"]
+        for o in cli_json("flag", "list", "--feature", f["name"], "--identities", *env.args()):
+            by_identity.setdefault(o["identifier"], []).append({
+                "feature": {"id": f["id"], "name": f["name"], "type": f["type"]},
+                "enabled": o["enabled"], "feature_state_value": o.get("value"),
+                "featurestate_uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"flag-preflight/{o['identifier']}/{f['id']}")),
+                "django_id": None, "feature_segment": None, "multivariate_feature_state_values": [],
+            })
+    doc["identity_overrides"] = [
+        {"identifier": ident, "identity_features": sorted(feats, key=lambda x: x["feature"]["id"]), "identity_traits": []}
+        for ident, feats in sorted(by_identity.items())
+    ]
+    return doc
 
 
 # --------------------------------------------------------------------------- #
@@ -142,7 +169,7 @@ def current_document(env: Env, flag: str, newer_than: str | None = None,
     deadline, waited = time.time() + wait_s, False
     while True:
         doc = env.document()
-        fid = _env_fs(doc, flag)["feature"]["id"]
+        fid = _env_fs(doc, flag)["feature"]["id"]  # ValueError names the flags that do exist
         version = live_version(env, fid)
         caught_up = newer_than is None or (doc.get("updated_at") or "") > newer_than
         if caught_up and (version is None or _doc_fs_uuids(doc, flag) == _version_fs_uuids(env, fid, version)):
@@ -307,7 +334,10 @@ def parse_weights(raw: str) -> dict[str, float]:
         k, sep, v = part.partition("=")
         if not sep or not k:
             raise Refused(f"bad weight {part!r}; expected <variant>=<pct>")
-        out[k] = float(v)
+        try:
+            out[k] = float(v)
+        except ValueError:
+            raise Refused(f"bad weight {part!r}; the percentage must be a number") from None
     return out
 
 
@@ -325,7 +355,10 @@ def parse_spec(flag: str, spec: str) -> dict:
             return {"op": "segment_override", "feature": flag, "segment": seg, "value": parse_value(raw)[0]}
         raise Refused(f"unknown segment field {key!r}")
     if spec.startswith("rollout:"):
-        pct = float(spec[8:])
+        try:
+            pct = float(spec[8:])
+        except ValueError:
+            raise Refused(f"rollout percentage must be a number, got {spec[8:]!r}") from None
         if not 0 < pct <= 100:
             raise Refused("rollout percentage must be in (0, 100]")
         return {"op": "percentage_rollout", "feature": flag, "percentage": pct, "enabled": True,
@@ -337,7 +370,9 @@ def parse_spec(flag: str, spec: str) -> dict:
         return {"op": "env_default", "feature": flag, "enabled": parse_bool(raw)}
     if key == "value" and sep:
         return {"op": "env_default", "feature": flag, "value": parse_value(raw)[0]}
-    raise Refused(f"unrecognised change spec {spec!r}")
+    raise Refused(f"unrecognised change spec {spec!r}; expected one of enabled=true|false, value=<v>, "
+                  "segment:<seg>:enabled=..|value=..|weight:<k>=<pct>, rollout:<pct>, weight:<k>=<pct>[,..] "
+                  "(see references/change-spec.md)")
 
 
 def describe(before_doc: dict, m: dict) -> str:

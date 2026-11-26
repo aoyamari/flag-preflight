@@ -83,7 +83,9 @@ def evaluate(doc: Mapping[str, Any], identities: Iterable[Identity]) -> dict[str
 def _env_fs(doc: dict, feature: str) -> dict:
     hits = [fs for fs in doc["feature_states"] if fs["feature"]["name"] == feature]
     if len(hits) != 1:
-        raise ValueError(f"feature {feature!r}: expected 1 environment feature_state, found {len(hits)}")
+        names = ", ".join(sorted(fs["feature"]["name"] for fs in doc["feature_states"]))
+        raise ValueError(f"flag {feature!r} not found in {doc.get('name', 'environment')} (flags: {names})"
+                         if not hits else f"flag {feature!r} has {len(hits)} environment feature states")
     return hits[0]
 
 
@@ -91,7 +93,8 @@ def _segment(doc: dict, ref: str | int) -> dict:
     segs = doc["project"]["segments"]
     hits = [s for s in segs if s["id"] == ref or s["name"] == ref or str(s["id"]) == str(ref)]
     if len(hits) != 1:
-        raise ValueError(f"segment {ref!r} not found in environment document")
+        names = ", ".join(sorted(s["name"] for s in segs)) or "none"
+        raise ValueError(f"segment {ref!r} not found in environment document (segments: {names})")
     return hits[0]
 
 
@@ -190,14 +193,17 @@ def _op_mv_weights(doc: dict, m: Mapping[str, Any]) -> None:
             raise ValueError(f"segment {seg_ref!r} has no override for {m['feature']!r}")
     mvs = fs.get("multivariate_feature_state_values") or []
     if not mvs:
-        raise ValueError(f"{m['feature']!r} has no multivariate values on that feature_state")
+        if fs["feature"].get("type") != "MULTIVARIATE":
+            raise ValueError(f"{m['feature']!r} is not multivariate; it has no variants to weight")
+        raise ValueError(f"{m['feature']!r} has no variant values on that override")
     for ref, pct in m["weights"].items():
         hit = [
             mv for mv in mvs
             if str(ref) in (mv["multivariate_feature_option"].get("key"), str(mv["multivariate_feature_option"]["id"]))
         ]
         if len(hit) != 1:
-            raise ValueError(f"variant {ref!r} not found on {m['feature']!r}")
+            keys = ", ".join(str(mv["multivariate_feature_option"].get("key") or mv["multivariate_feature_option"]["id"]) for mv in mvs)
+            raise ValueError(f"variant {ref!r} not found on {m['feature']!r} (variants: {keys})")
         hit[0]["percentage_allocation"] = float(pct)
     total = sum(mv["percentage_allocation"] for mv in mvs)
     if total > 100:

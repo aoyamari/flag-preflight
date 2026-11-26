@@ -50,3 +50,11 @@ disk have it stripped and are used only for diffs.
 
 Flagsmith hides experiment segments (e.g. `experiment-534-rollout`). They are in
 the environment document and plans report them.
+
+## Identity overrides and the document
+
+`flagsmith environment document` (Admin API) returns `identity_overrides: []` even
+when overrides exist; only the SDK document (server key) carries them. preflight
+rebuilds them from `flagsmith flag list --feature <f> --identities` (one call per
+flag, not cached), so overridden identities simulate as Flagsmith evaluates them
+and a new or removed identity override invalidates open plans.

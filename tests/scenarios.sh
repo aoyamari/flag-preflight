@@ -4,6 +4,10 @@
 #   tests/scenarios.sh with_skill [S1 S2 ...]   # sessions in the repo (skill installed)
 #   tests/scenarios.sh baseline   [S1 S2 ...]   # sessions in an empty dir, same CLI, no skill
 #
+# Env: BENCH_RUNS (repetitions, default 1), BENCH_TOTAL_BUDGET_USD (stop before a session
+# that could cross it), BENCH_BUDGET_USD (per-session cap, default 0.6), BENCH_PARALLEL
+# (benches running at once, for the budget reserve), BENCH_OUT, BENCH_WORK.
+#
 # Each scenario is a fresh `claude -p` session (stream-json, which ends with the same
 # result object as --output-format json). Sessions stop at the first approval point
 # because nobody answers. Safety: a `flagsmith` shim on PATH lets reads through and
@@ -17,8 +21,12 @@ mode="${1:?usage: scenarios.sh with_skill|baseline [S1 ...]}"; shift || true
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="${BENCH_WORK:-${TMPDIR:-/tmp}/flag-preflight-bench}"
 baseline_dir="${BASELINE_DIR:-$HOME/preflight-baseline}"
-budget="${BENCH_BUDGET_USD:-2}"
+budget="${BENCH_BUDGET_USD:-0.6}"          # per-session cap (claude --max-budget-usd)
+total_budget="${BENCH_TOTAL_BUDGET_USD:-}" # optional cap over every session in $work
+parallel="${BENCH_PARALLEL:-1}"            # benches running at once (budget reserve)
+runs="${BENCH_RUNS:-1}"
 turns="${BENCH_MAX_TURNS:-30}"
+out="${BENCH_OUT:-$repo/bench/$mode.json}"
 
 declare -A PROMPTS=(
   [S1]="nyalakan new_checkout untuk semua user di Development"
@@ -31,8 +39,7 @@ declare -A PROMPTS=(
 # S4b (extra): new_checkout is already ON in Production, so S4 is a no-op and never
 # reaches the confirmation gate; S4b asks for a real Production change.
 if [ $# -gt 0 ]; then ids=("$@")
-elif [ "$mode" = baseline ]; then ids=(S1 S2 S3 S4)
-else ids=(S1 S2 S3 S4 S5); fi
+else ids=(S1 S2 S3 S4 S4b S5); fi
 
 case "$mode" in
   with_skill) cwd="$repo"; [ -e "$repo/.claude/skills/flag-preflight/SKILL.md" ] || { echo "skill not installed" >&2; exit 1; } ;;
@@ -46,7 +53,7 @@ ln -sf "$repo/tests/bench/shim_flagsmith.py" "$work/bin/flagsmith"
 chmod +x "$repo/tests/bench/shim_flagsmith.py" "$repo/tests/bench/guard_hook.py"
 log="$work/events.jsonl"; touch "$log"
 
-cat > "$work/settings.json" <<EOF
+cat > "$work/settings.json.$$" <<EOF
 {
   "permissions": {
     "deny": ["Read(**/.env)", "Bash(curl:*)", "Bash(wget:*)", "Bash(flagsmith auth token:*)"]
@@ -59,6 +66,7 @@ cat > "$work/settings.json" <<EOF
   }
 }
 EOF
+mv -f "$work/settings.json.$$" "$work/settings.json"
 
 scen_json="$work/raw/${mode}_scenarios.json"
 python3 - "$scen_json" "${ids[@]}" <<EOF
@@ -83,23 +91,48 @@ json.dump({
 }, open(out, "w"), indent=2)
 EOF
 
+# Money actually spent by finished sessions in $work (both modes), from their result events.
+spent() {
+  python3 - "$work/raw" <<'PY'
+import json, pathlib, sys
+total = 0.0
+for f in pathlib.Path(sys.argv[1]).glob("*_r*.jsonl"):
+    for line in reversed(f.read_text().splitlines()):
+        if '"type":"result"' in line.replace(" ", ""):
+            total += json.loads(line).get("total_cost_usd", 0.0)
+            break
+print(f"{total:.4f}")
+PY
+}
+
+# Interleaved: every scenario once, then again, so a budget stop leaves whole reps.
+for rep in $(seq 1 "$runs"); do
 for sid in "${ids[@]}"; do
   prompt="${PROMPTS[$sid]}"
-  echo "[$mode:$sid] $prompt" >&2
+  if [ -n "$total_budget" ]; then
+    s=$(spent)
+    if python3 -c "import sys; sys.exit(0 if $s + $budget * $parallel > $total_budget else 1)"; then
+      echo "[$mode] BUDGET STOP before $sid r$rep: spent \$$s, reserve \$$budget x $parallel, cap \$$total_budget" >&2
+      printf '{"mode": "%s", "stopped_before": "%s:r%s", "spent_usd": %s}\n' "$mode" "$sid" "$rep" "$s" > "$work/raw/${mode}_budget_stop.json"
+      break 2
+    fi
+  fi
+  echo "[$mode:$sid:r$rep] $prompt" >&2
   (
     cd "$cwd"
     env -u FLAGSMITH_API_KEY -u FLAGSMITH_ENVIRONMENT_KEY -u FLAGSMITH_ENVIRONMENT -u FLAGSMITH_PROJECT \
       PATH="$work/bin:$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/.local/bin$' | paste -sd:)" \
-      PREFLIGHT_BENCH_SCENARIO="$mode:$sid" PREFLIGHT_BENCH_LOG="$log" \
+      PREFLIGHT_BENCH_SCENARIO="$mode:$sid:r$rep" PREFLIGHT_BENCH_LOG="$log" \
       PREFLIGHT_BENCH_REAL_FLAGSMITH="$real" PREFLIGHT_BENCH_CREDS="$repo/.env" \
-      PREFLIGHT_DIR="$work/state/$mode-$sid" \
+      PREFLIGHT_DIR="$work/state/$mode-$sid-r$rep" \
       timeout 900 claude -p "$prompt" --output-format stream-json --verbose \
         --no-session-persistence --strict-mcp-config --settings "$work/settings.json" \
         --allowedTools Bash Read Glob Grep Skill \
         --disallowedTools Write Edit NotebookEdit WebFetch WebSearch Agent \
         --max-turns "$turns" --max-budget-usd "$budget" \
-        > "$work/raw/${mode}_${sid}.jsonl" 2> "$work/raw/${mode}_${sid}.stderr" || true
+        > "$work/raw/${mode}_${sid}_r${rep}.jsonl" 2> "$work/raw/${mode}_${sid}_r${rep}.stderr" || true
   )
 done
+done
 
-python3 "$repo/tests/bench/summarize.py" "$mode" "$work/raw" "$log" "$scen_json" "$repo/bench/$mode.json"
+python3 "$repo/tests/bench/summarize.py" "$mode" "$work/raw" "$log" "$scen_json" "$out" "$runs"

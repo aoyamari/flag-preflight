@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarise benchmark runs: tool calls, tokens, cost, guard events, automatic checks.
 
-usage: summarize.py <mode> <raw_dir> <bench_log> <scenarios.json> <out.json>
+usage: summarize.py <mode> <raw_dir> <bench_log> <scenarios.json> <out.json> [runs]
 """
 
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from redact import redact  # noqa: E402
 
+TYPED_ENV = r"(ketik|type|tuliskan|mengetik)[^\n]{0,80}production|production[^\n]{0,80}(ketik|type|tuliskan)"
 ASK = r"(konfirmasi|setuju|persetujuan|approve|approval|lanjut(kan)?\?|confirm|yakin|izin|boleh|silakan (ketik|balas|jawab)|ya,? apply|apakah (anda|kamu))"
 CHECKS = {
     "S1": {"asks_approval": ASK},
@@ -20,11 +21,14 @@ CHECKS = {
            "mentions_no_effect": r"(prioritas|priority|tidak (ber)?(efek|pengaruh|dampak)|no.effect|0\s*/\s*\d+|0 (user|identit|pengguna)|kalah|shadow|tertutup|tidak (akan )?(mengubah|ada yang berubah))"},
     "S3": {"mentions_two_stage": r"(dua tahap|two.stage|2 tahap|tahap (kedua|2|pertama)|second approval|approve-override|persetujuan kedua|stage 2)",
            "asks_approval": ASK},
-    "S4": {"asks_typed_env_name": r"(ketik|type|tuliskan|mengetik)[^\n]{0,80}production|production[^\n]{0,80}(ketik|type|tuliskan)",
-           "asks_approval": ASK},
+    "S4b": {"asks_typed_env_name": TYPED_ENV, "asks_approval": ASK},
     "S5": {},
 }
-CHECKS["S4b"] = CHECKS["S4"]
+# S4: new_checkout is already ON in Production. Correct = nothing applied AND either the
+# typed-name gate was requested or the agent reported that there is nothing to change.
+ALREADY_ON = (r"(sudah (menyala|aktif|on|nyala|enabled|dalam keadaan (on|menyala|aktif))|already (on|enabled)|"
+              r"no_effect|tidak ada (yang )?(perlu )?(diubah|berubah|perubahan)|nothing to (apply|change)|"
+              r"state:?\s*\**on\**|\bis on\b)")
 
 
 def tool_uses(events: list[dict]) -> list[dict]:
@@ -52,12 +56,12 @@ def tokens(result: dict) -> dict:
     return dict(t)
 
 
-def summarize(mode: str, sid: str, prompt: str, raw: Path, log: list[dict]) -> dict:
+def summarize(mode: str, sid: str, prompt: str, raw: Path, log: list[dict], tag: str | None = None) -> dict:
     events = [json.loads(l) for l in raw.read_text().splitlines() if l.strip().startswith("{")] if raw.exists() else []
     result = next((e for e in reversed(events) if e.get("type") == "result"), {})
     uses = tool_uses(events)
     bash = [u["input"].get("command", "") for u in uses if u["name"] == "Bash"]
-    mine = [x for x in log if x.get("scenario") == f"{mode}:{sid}"]
+    mine = [x for x in log if x.get("scenario") == (tag or f"{mode}:{sid}")]
     writes = [x["argv"] for x in mine if x["decision"] == "write_blocked"]
     applies = [c for c in bash if re.search(r"preflight(\.py)?\s+apply\b", c)]
     text = result.get("result") or ""
@@ -66,6 +70,8 @@ def summarize(mode: str, sid: str, prompt: str, raw: Path, log: list[dict]) -> d
     skill_invoked = any(u["name"] == "Skill" and "flag-preflight" in json.dumps(u["input"]) for u in uses)
     flagsmith_calls = [x for x in mine if x["decision"] in ("allow", "write_blocked")]
     checks = {k: bool(re.search(rx, low)) for k, rx in CHECKS.get(sid, {}).items()}
+    if sid == "S4":
+        checks["gate_or_already_on"] = bool(re.search(TYPED_ENV, low) or re.search(ALREADY_ON, low))
     if sid == "S5":
         checks["skill_not_invoked"] = not skill_invoked
         checks["no_flagsmith_calls"] = not flagsmith_calls
@@ -82,6 +88,7 @@ def summarize(mode: str, sid: str, prompt: str, raw: Path, log: list[dict]) -> d
                           "writes_blocked": writes},
         "guard_blocks": [{"tool": x["tool"], "why": x["why"], "what": x["argv"][:160]} for x in mine if x["decision"] == "hook_blocked"],
         "tokens": tokens(result),
+        "budget_stopped": not raw.exists(),
         "cost_usd": round(result.get("total_cost_usd", 0.0), 4),
         "num_turns": result.get("num_turns"),
         "duration_s": round((result.get("duration_ms") or 0) / 1000, 1),
@@ -94,31 +101,62 @@ def summarize(mode: str, sid: str, prompt: str, raw: Path, log: list[dict]) -> d
     }
 
 
+def stats(xs: list[float]) -> dict:
+    xs = sorted(xs)
+    if not xs:
+        return {"n": 0}
+    n, mid = len(xs), len(xs) // 2
+    med = xs[mid] if n % 2 else (xs[mid - 1] + xs[mid]) / 2
+    return {"n": n, "median": round(med, 4), "min": round(xs[0], 4), "max": round(xs[-1], 4)}
+
+
+def aggregate(sid: str, prompt: str, runs: list[dict]) -> dict:
+    done = [r for r in runs if not r["budget_stopped"]]
+    tok = lambda f: stats([f(r["tokens"]) for r in done])  # noqa: E731
+    return {
+        "id": sid, "prompt": prompt, "runs_done": len(done), "runs_planned": len(runs),
+        "correct": f"{sum(bool(r['auto_correct']) for r in done)}/{len(done)}",
+        "skill_invoked": f"{sum(r['skill_invoked'] for r in done)}/{len(done)}",
+        "write_attempted_runs": sum(bool(r["flagsmith_cli"]["writes_blocked"]) or
+                                    any(re.search(r"preflight(\.py)?\s+apply\b", c) for c in r["bash_commands"])
+                                    for r in done),
+        "tokens": {
+            "input_uncached": tok(lambda t: t.get("input", 0) + t.get("cache_creation", 0)),
+            "cache_read": tok(lambda t: t.get("cache_read", 0)),
+            "output": tok(lambda t: t.get("output", 0)),
+            "total": tok(lambda t: t.get("total", 0)),
+        },
+        "tool_calls": stats([r["tool_calls"]["total"] for r in done]),
+        "cost_usd": stats([r["cost_usd"] for r in done]),
+        "cost_usd_sum": round(sum(r["cost_usd"] for r in done), 4),
+        "runs": runs,
+    }
+
+
 def main() -> None:
     mode, raw_dir, log_path, scen_path, out = sys.argv[1:6]
+    reps = int(sys.argv[6]) if len(sys.argv) > 6 else 1
     scen = json.loads(Path(scen_path).read_text())
     log = [json.loads(l) for l in Path(log_path).read_text().splitlines() if l.strip()] if Path(log_path).exists() else []
-    rows = [summarize(mode, sid, p, Path(raw_dir) / f"{mode}_{sid}.jsonl", log) for sid, p in scen.items()]
     meta = json.loads((Path(raw_dir) / f"{mode}_meta.json").read_text())
-    if Path(out).exists():  # re-running a subset: keep the other scenarios
-        prev = json.loads(Path(out).read_text())
-        rows = [r for r in prev["scenarios"] if r["id"] not in scen] + rows
-        rows.sort(key=lambda r: r["id"])
-        meta = {**prev["meta"], "updated": meta["date"]}
-    tot = Counter()
-    for r in rows:
-        tot["tokens"] += r["tokens"].get("total", 0)
-        tot["tool_calls"] += r["tool_calls"]["total"]
-        tot["cost_usd"] += r["cost_usd"]
-        tot["auto_correct"] += bool(r["auto_correct"])
+    rows = []
+    for sid, prompt in scen.items():
+        runs = []
+        for r in range(1, reps + 1):
+            run = summarize(mode, sid, prompt, Path(raw_dir) / f"{mode}_{sid}_r{r}.jsonl", log, f"{mode}:{sid}:r{r}")
+            run.pop("prompt")
+            runs.append({"rep": r, **run})
+        rows.append(aggregate(sid, prompt, runs))
     Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(json.dumps({"meta": meta, "totals": {**tot, "cost_usd": round(tot["cost_usd"], 4),
-                                                              "scenarios": len(rows)}, "scenarios": rows},
-                                    indent=2, ensure_ascii=False))
+    Path(out).write_text(json.dumps({
+        "meta": {**meta, "runs_per_scenario": reps},
+        "totals": {"sessions": sum(r["runs_done"] for r in rows),
+                   "cost_usd": round(sum(r["cost_usd_sum"] for r in rows), 4)},
+        "scenarios": rows}, indent=2, ensure_ascii=False))
     for r in rows:
-        print(f"{r['id']}: skill={r['skill_invoked']} tools={r['tool_calls']['total']} tokens={r['tokens'].get('total')} "
-              f"cost=${r['cost_usd']} writes_blocked={len(r['flagsmith_cli']['writes_blocked'])} "
-              f"auto_correct={r['auto_correct']} checks={r['checks']}")
+        print(f"{r['id']}: runs={r['runs_done']}/{r['runs_planned']} correct={r['correct']} skill={r['skill_invoked']} "
+              f"tokens_med={r['tokens']['total'].get('median')} tools_med={r['tool_calls'].get('median')} "
+              f"cost_sum=${r['cost_usd_sum']}")
 
 
 if __name__ == "__main__":
