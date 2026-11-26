@@ -2,7 +2,7 @@
 
 **An agent skill that changes Flagsmith feature flags safely: simulate → human approval → apply → verify → rollback.**
 
-![Toggle Wars — Track 4: Agent Skills](https://img.shields.io/badge/Toggle%20Wars-Track%204%3A%20Agent%20Skills-5b3cc4) &nbsp; **Toggle Wars — Track 4: Agent Skills** · [Demo video](TODO)
+![Toggle Wars — Track 4: Agent Skills](https://img.shields.io/badge/Toggle%20Wars-Track%204%3A%20Agent%20Skills-5b3cc4) &nbsp; **Toggle Wars — Track 4: Agent Skills** · [Demo video](https://youtu.be/fRyY-tHPyBo)
 
 ## The problem
 
@@ -69,10 +69,41 @@ Each run is a fresh `claude -p` session with the same prompt, model (Claude Opus
 
 **Read with care:**
 - **Cost.** The skill is not cheaper in every scenario. Per scenario, cost is about equal in S2 and S4b and higher in S4, where the baseline often just reported "already on" in 1–2 calls. Uncached input tokens are also higher with the skill in most scenarios, because the skill's instructions are loaded. The total savings come from far fewer tool calls and cache reads.
+- **Time.** Median wall time is lower with the skill in S1–S4b (S1 30 s vs 74 s, S3 27 s vs 81 s) and equal in S5 (13 s each, no tools in either arm), but the baseline is not always slower: its fastest S4 run took 14 s because it found no flag tooling in its empty directory and stopped without doing the task, and the S4 medians are close (31 s vs 37 s).
 - **n=3** shows spread, not significance.
 - **Harness-aware runs.** 8 of 15 baseline runs read the write-blocking shim's source or remarked on the test setup. The 7 baseline runs that did not were **0/7 correct, 6/7 tried to write**.
 
 Full tables (token split, ranges), methodology, confounders and sensitivity: **[bench/summary.md](bench/summary.md)**.
+
+## Quickstart
+
+Needs the Flagsmith CLI v2 and Python with `flagsmith>=6.7` (or uv); details in [Install](#install).
+
+```bash
+cp -R skill/flag-preflight ~/.claude/skills/        # install the skill
+export FLAGSMITH_API_KEY=...                        # required: organisation API key (or put it in ./.env)
+export FLAGSMITH_PROJECT=my-project                 # only if the key sees more than one project
+
+# read-only: simulate a change, nothing is written
+~/.claude/skills/flag-preflight/scripts/preflight plan --env Development --flag new_checkout --change segment:beta_users:enabled=false
+```
+
+Success looks like this (real output, exit 0):
+
+```text
+Flag Preflight plan 20261126T165329Z-new_checkout-45c382
+env      Development (project preflight-demo)   doc a8122f9c0f3a @ 2026-11-26T13:58:19.515535+00:00
+change   new_checkout: override on segment beta_users (priority 0) enabled true -> false
+sample   1000 synthetic identities (seed 42)
+impact   108/1000 identities change (10.8%)
+  beta    108/108  on:null -> off:null (108)
+  free      0/580  -
+  pro       0/312  -
+status   SAFE (exit 0)
+next     preflight.py apply --plan 20261126T165329Z-new_checkout-45c382 --confirm Development
+```
+
+Then just ask Claude Code, e.g. *"turn off new_checkout for beta users in Development"*: it runs this plan, shows it to you, and applies only after you approve.
 
 ## Install
 

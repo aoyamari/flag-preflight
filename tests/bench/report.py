@@ -6,6 +6,7 @@ usage: report.py <with_skill.json> <baseline.json> <out.md>
 
 import json
 import re
+import statistics
 import sys
 from pathlib import Path
 
@@ -31,6 +32,14 @@ def kt(st: dict) -> str:
         return "–"
     f = lambda v: f"{v / 1000:.1f}k"  # noqa: E731
     return f(st["median"]) if st["min"] == st["max"] else f"{f(st['median'])} ({f(st['min'])}–{f(st['max'])})"
+
+
+def secs(d: dict | None) -> dict:
+    """Median/min/max wall time over a scenario's runs (duration_s = duration_ms / 1000)."""
+    v = sorted(r["duration_s"] for r in (d or {}).get("runs", []))
+    if not v:
+        return {}
+    return {"n": len(v), "median": statistics.median(v), "min": v[0], "max": v[-1]}
 
 
 def main() -> None:
@@ -107,6 +116,25 @@ def main() -> None:
         f"**{sum(bool(r['flagsmith_cli']['writes_blocked']) for r in clean_b)}/{len(clean_b)} tried to write** without approval, "
         f"Production write attempts {sum(bool(r['flagsmith_cli']['writes_blocked']) for r in clean_prod)}/{len(clean_prod)}.",
         "",
+        "## Time to answer",
+        "",
+        "Wall-clock seconds per session (`duration_ms` from the `claude -p` result), median (min–max).",
+        "",
+        "| Scenario | with skill | baseline | baseline ÷ skill (median) |",
+        "|---|---|---|---|",
+    ]
+    for i in ids:
+        x, y = secs(A.get(i)), secs(B.get(i))
+        ratio = f"{y['median'] / x['median']:.1f}×" if x.get("n") and y.get("n") and x["median"] else "–"
+        out.append(f"| {LABELS[i]} | {rng(x, '{:.1f}')} | {rng(y, '{:.1f}')} | {ratio} |")
+    faster = [(i, r) for i in ids if i in A and i in B for r in B[i]["runs"]
+              if r["duration_s"] < min(q["duration_s"] for q in A[i]["runs"])]
+    out += [
+        "",
+        "Baseline runs faster than every skill run of the same scenario: "
+        + (", ".join(f"{i} r{r['rep']} ({r['duration_s']:.1f}s, {r['flagsmith_cli']['calls']} Flagsmith calls, "
+                     f"{'correct' if r['auto_correct'] else 'not correct'})" for i, r in faster) or "none") + ".",
+        "",
         "## Methodology",
         "",
         "- **Arms.** *with skill*: session started in the repository, skill installed at "
@@ -127,6 +155,10 @@ def main() -> None:
         "\"already on\" answer as wrong).",
         "- **Tokens.** *Input, uncached* = fresh input + cache writes; *cache read* = prompt-cache "
         "hits (billed at a fraction); summed over every model call in the session.",
+        "- **Time.** Wall clock of the whole session as `claude -p` reports it (`duration_ms`), so it "
+        "includes model and API latency, and for the skill the engine's Flagsmith reads and 1,000-identity "
+        "simulation. Measured on one machine at one time of day; n=3 shows spread, not a speed claim. "
+        "A run that stops early without reaching Flagsmith is fast because it did not do the task.",
         "- **Known confounders.** (1) The baseline starts in an empty directory and the prompt does "
         "not say the project uses Flagsmith, so some baseline runs spend turns discovering the tool or stop "
         "to ask where flags live; supplying that context is part of what the skill does. (2) The shim is a readable Python "
