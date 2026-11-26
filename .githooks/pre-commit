@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Block commits that contain Flagsmith credentials or local state.
+
+Enable once per clone:  git config core.hooksPath .githooks
+
+Checks every staged file (the staged blob, not the working copy):
+  * forbidden paths: .env*, snapshots/, .preflight/
+  * key shapes: server keys (ser.*), master API keys (<8>.<32>), client-side
+    environment keys (22 mixed-case alphanumerics), labelled 40-hex tokens,
+    literal FLAGSMITH_*KEY=<value> assignments
+  * the exact values held in .env (or $PREFLIGHT_HOOK_ENV_FILE), if present
+A line containing "preflight: allow-secret-pattern" is skipped (fixtures only).
+Matches are reported masked; the hook never prints a full key.
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+FORBIDDEN_PATHS = [
+    (re.compile(r"(^|/)\.env($|\.)(?!example$)"), ".env file"),
+    (re.compile(r"(^|/)snapshots/"), "environment document snapshots"),
+    (re.compile(r"(^|/)\.preflight/"), "Flag Preflight state (plans, audit log)"),
+]
+PATTERNS = [
+    ("Flagsmith server-side key", re.compile(r"\bser\.[A-Za-z0-9]{20,}")),
+    ("Flagsmith master API key", re.compile(r"\b[A-Za-z0-9]{8}\.[A-Za-z0-9]{32}\b")),
+    ("Flagsmith client-side key", re.compile(r"\b(?=[A-Za-z0-9]{22}\b)(?=[A-Za-z0-9]*[A-Z])(?=[A-Za-z0-9]*[a-z])(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{22}\b")),
+    ("API token", re.compile(r"(?i)(token|api[_-]?key|authorization)[\"'\s:=]+(token\s+|bearer\s+|api-key\s+)?[0-9a-f]{40}\b")),
+    ("key assignment", re.compile(r"\bFLAGSMITH_[A-Z_]*(KEY|TOKEN)\s*[:=]\s*[\"']?[A-Za-z0-9._-]{12,}")),
+]
+ALLOW = "preflight: allow-secret-pattern"
+
+
+def git(*args: str) -> bytes:
+    return subprocess.run(["git", *args], check=True, capture_output=True).stdout
+
+
+def env_values() -> list[str]:
+    path = os.environ.get("PREFLIGHT_HOOK_ENV_FILE") or os.path.join(git("rev-parse", "--show-toplevel").decode().strip(), ".env")
+    out = []
+    try:
+        for line in open(path, encoding="utf-8", errors="replace"):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                v = line.split("=", 1)[1].strip().strip("'\"")
+                if len(v) >= 12:
+                    out.append(v)
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def mask(s: str) -> str:
+    return s[:4] + "…" + f"({len(s)} chars)"
+
+
+def main() -> int:
+    staged = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").decode().split("\0")
+    secrets = env_values()
+    problems = []
+    for path in filter(None, staged):
+        for rx, why in FORBIDDEN_PATHS:
+            if rx.search(path):
+                problems.append(f"{path}: forbidden path ({why})")
+        try:
+            blob = git("show", f":{path}")
+        except subprocess.CalledProcessError:
+            continue
+        if b"\0" in blob[:8192]:
+            continue  # binary
+        for n, line in enumerate(blob.decode("utf-8", "replace").splitlines(), 1):
+            if ALLOW in line:
+                continue
+            for name, rx in PATTERNS:
+                for m in rx.finditer(line):
+                    problems.append(f"{path}:{n}: {name} {mask(m.group(0))}")
+            for v in secrets:
+                if v in line:
+                    problems.append(f"{path}:{n}: value from .env {mask(v)}")
+    if problems:
+        print("pre-commit: BLOCKED — possible credentials or local state staged:", file=sys.stderr)
+        for p in problems[:50]:
+            print(f"  {p}", file=sys.stderr)
+        print("Remove them (git restore --staged <file>) and commit again.", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

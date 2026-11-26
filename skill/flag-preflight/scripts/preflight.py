@@ -19,7 +19,8 @@ Change specs:
 the Flagsmith CLI, and only after the freshness and confirmation checks.
 
 Credentials: the Flagsmith CLI's own (FLAGSMITH_API_KEY or `flagsmith login`).
-Project: --project or FLAGSMITH_PROJECT. Nothing secret is written to disk.
+Project: --project, FLAGSMITH_PROJECT, or the only project the credential sees.
+Nothing secret is written to disk.
 
 Exit codes (plan): 0 safe, 2 warnings, 3 blocked (active experiment on the flag).
 Other commands: 0 ok, 1 refused/failed, 2 completed with warnings or mismatches.
@@ -843,9 +844,13 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "plan" and a.identities is None:
         a.identities = 100 if a.from_api else 1000
-    if a.cmd == "plan" and not a.project:
-        ap.error("--project or FLAGSMITH_PROJECT is required")
     try:
+        if a.cmd == "plan" and not a.project:
+            projects = cli_json("project", "list")
+            if len(projects) != 1:
+                raise Refused("several projects visible; pass --project or set FLAGSMITH_PROJECT: "
+                              + ", ".join(p["name"] for p in projects))
+            a.project = projects[0]["name"]
         return {"plan": cmd_plan, "apply": cmd_apply, "verify": cmd_verify, "rollback": cmd_rollback}[a.cmd](a)
     except (Refused, ValueError) as e:
         print(f"REFUSED: {e}", file=sys.stderr)

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Flag Preflight entry point.
+# Loads credentials from ./.env without printing them, finds a Python that has
+# the Flagsmith SDK, and runs preflight.py with the given arguments.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+command -v flagsmith >/dev/null || export PATH="$PATH:$HOME/.local/bin"
+command -v flagsmith >/dev/null || {
+  echo "flag-preflight: Flagsmith CLI not found (install: curl -fsSL https://get.flagsmith.com | sh)" >&2; exit 1; }
+
+if [ -z "${FLAGSMITH_API_KEY:-}" ] && [ -f .env ]; then
+  set -a; . ./.env; set +a
+fi
+
+if [ -n "${PREFLIGHT_PYTHON:-}" ]; then
+  py="$PREFLIGHT_PYTHON"
+elif [ -x .venv/bin/python ] && .venv/bin/python -c "import flagsmith" 2>/dev/null; then
+  py=.venv/bin/python
+elif python3 -c "import flagsmith" 2>/dev/null; then
+  py=python3
+elif command -v uv >/dev/null; then
+  exec uv run --quiet --no-project --with 'flagsmith>=6.7,<7' python "$here/preflight.py" "$@"
+else
+  echo "flag-preflight: need Python with the 'flagsmith' package (pip install flagsmith) or uv" >&2; exit 1
+fi
+exec "$py" "$here/preflight.py" "$@"
