@@ -42,7 +42,8 @@ if [ $# -gt 0 ]; then ids=("$@")
 else ids=(S1 S2 S3 S4 S4b S5); fi
 
 case "$mode" in
-  with_skill) cwd="$repo"; [ -e "$repo/.claude/skills/flag-preflight/SKILL.md" ] || { echo "skill not installed" >&2; exit 1; } ;;
+  with_skill) cwd="$repo"
+              [ -e "$repo/.claude/skills/flag-preflight/SKILL.md" ] || { mkdir -p "$repo/.claude/skills"; cp -R "$repo/skill/flag-preflight" "$repo/.claude/skills/"; } ;;
   baseline)   cwd="$baseline_dir"; mkdir -p "$cwd"; [ ! -e "$cwd/.claude/skills" ] || { echo "baseline dir has skills" >&2; exit 1; } ;;
   *) echo "mode must be with_skill or baseline" >&2; exit 1 ;;
 esac

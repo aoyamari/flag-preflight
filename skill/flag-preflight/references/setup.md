@@ -35,7 +35,15 @@ git config core.hooksPath .githooks
 
 ## Installing the skill in a project
 
+Copy the folder (no symlinks, so it works on Windows too):
+
 ```bash
-mkdir -p .claude/skills
-ln -s ../../skill/flag-preflight .claude/skills/flag-preflight
+mkdir -p .claude/skills && cp -R skill/flag-preflight .claude/skills/      # one project
+mkdir -p ~/.claude/skills && cp -R skill/flag-preflight ~/.claude/skills/  # all projects
 ```
+
+```powershell
+Copy-Item -Recurse skill\flag-preflight $HOME\.claude\skills\
+```
+
+Re-copy after pulling changes to `skill/`.
