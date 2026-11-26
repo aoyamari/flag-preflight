@@ -2,7 +2,7 @@
 
 **An agent skill that changes Flagsmith feature flags safely: simulate → human approval → apply → verify → rollback.**
 
-![Toggle Wars — Flagsmith hackathon](https://img.shields.io/badge/Toggle%20Wars-Flagsmith%20hackathon-5b3cc4) &nbsp; **Toggle Wars — Flagsmith hackathon** · [Demo video](https://youtu.be/fRyY-tHPyBo)
+![Toggle Wars — Flagsmith hackathon](https://img.shields.io/badge/Toggle%20Wars-Flagsmith%20hackathon-5b3cc4) &nbsp; **Toggle Wars — Flagsmith hackathon** · [Demo video](https://youtu.be/zhIuTyk-aqk)
 
 ## The problem
 
