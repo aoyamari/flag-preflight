@@ -1,10 +1,10 @@
 # Flag Preflight — demo video script
 
-Target length 2:48 (1920×1080, H.264 + AAC). Voice: edge-tts `en-US-AndrewNeural`.
+Target length 2:51 (1920×1080, H.264 + AAC). Voice: edge-tts `en-US-AndrewNeural`.
 Every terminal frame comes from a real Claude Code session recorded with VHS
 (`video/scene3.tape`, `scene4.tape`, `scene5.tape`). Nothing in the terminal is typed
 or edited after the fact. Waiting time is either cut out or sped up, and every sped-up
-stretch is labelled on screen. Card numbers are copied from `bench/summary.md`.
+stretch is labelled on screen. One real frame is held (labelled "paused") so it can be read. Card numbers are copied from `bench/summary.md`.
 
 `video/build.py` reads the narration lines (`> `) and durations below. `[t]` starts a line
 at second t of its scene (to line up with the footage); the cut list is `video/edl.json`.
@@ -48,14 +48,15 @@ Terminal (real, writes to Development): `turn on new_checkout for everyone in De
 > [30.4] Then I ask for a rollback.
 > [36.6] The environment is back to identical, and the sample matches again.
 
-## 5 · Production needs the typed name — 22s
+## 5 · Production needs the typed name — 25s
 
-Terminal (real, Production, read-only): `turn off new_checkout in Production` → `no, cancel`
+Terminal (real, Production, read-only): `turn off new_checkout in Production` → `no, cancel`.
+The agent's first spec (`off`) is REFUSED, and it corrects it to `enabled=false`; that real frame is held 2.5s ("paused").
 
 > [0.6] Now, Production.
-> [2.8] A malformed change spec is refused, and the agent corrects it.
-> [9.4] In Production, yes is not enough: the agent asks me to type the environment's name.
-> [16.4] I cancel, and nothing is written.
+> [4.6] A malformed change spec is refused, and the agent corrects it.
+> [11.9] In Production, yes is not enough: the agent asks me to type the environment's name.
+> [18.9] I cancel, and nothing is written.
 
 ## 6 · Benchmark — 20s
 

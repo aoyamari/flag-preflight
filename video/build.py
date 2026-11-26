@@ -211,8 +211,8 @@ def render_card(n: int) -> Path:
 
 # ---------------------------------------------------------------- clips
 
-def label_filter(speed: float) -> str:
-    return (f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='sped up ×{speed:g}':"
+def label_filter(text: str) -> str:
+    return (f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='{text}':"
             "fontsize=36:fontcolor=#f1fa8c:box=1:boxcolor=black@0.65:boxborderw=16:x=w-tw-48:y=40")
 
 
@@ -224,19 +224,33 @@ def card_video(n: int, dur: float) -> Path:
 
 
 def term_video(n: int, dur: float) -> Path:
-    """Encode each cut-list segment separately (input seek, small memory), then concat them."""
+    """Encode each cut-list entry separately (input seek, small memory), then concat them.
+
+    An entry is [start, end, speed] (speed 1 = real time, else labelled "sped up ×N"), or
+    {"freeze": t, "dur": d, "label": "paused"}: the real frame at t held for d seconds, labelled.
+    """
     edl = json.loads(EDL_FILE.read_text())[str(n)]
     src, segs, total = RAW / f"scene{n}.mp4", [], 0.0
-    for i, (a, b, speed) in enumerate(edl):
+    for i, entry in enumerate(edl):
         seg = BUILD / f"seg_{n}_{i:02d}.mp4"
-        vf = f"setpts=(PTS-STARTPTS)/{speed},fps={FPS},pad={W}:{H}:0:0:color={BG}"
-        if speed != 1:
-            vf += "," + label_filter(speed)
-        ffmpeg("-ss", f"{a}", "-to", f"{b}", "-i", str(src), "-an", "-vf", vf, *X264, "-r", str(FPS), str(seg))
+        if isinstance(entry, dict):
+            still = BUILD / f"freeze_{n}_{i:02d}.png"
+            ffmpeg("-ss", f"{entry['freeze']}", "-i", str(src), "-frames:v", "1", str(still))
+            vf = f"pad={W}:{H}:0:0:color={BG}," + label_filter(entry.get("label", "paused")) + ",format=yuv420p"
+            ffmpeg("-loop", "1", "-framerate", str(FPS), "-i", str(still), "-t", f"{entry['dur']}",
+                   "-vf", vf, *X264, "-r", str(FPS), str(seg))
+            total += entry["dur"]
+        else:
+            a, b, speed = entry
+            vf = f"setpts=(PTS-STARTPTS)/{speed},fps={FPS},pad={W}:{H}:0:0:color={BG}"
+            if speed != 1:
+                vf += "," + label_filter(f"sped up ×{speed:g}")
+            ffmpeg("-ss", f"{a}", "-to", f"{b}", "-i", str(src), "-an", "-vf", vf, *X264, "-r", str(FPS), str(seg))
+            total += (b - a) / speed
         segs.append(seg)
-        total += (b - a) / speed
     if total > dur + 0.05:
         raise SystemExit(f"scene {n}: cut list is {total:.2f}s, scene is {dur}s")
+    print(f"  scene {n}: cut list {total:.2f}s, last frame held {dur - total:.2f}s")
     lst = BUILD / f"segs_{n}.txt"
     lst.write_text("".join(f"file '{p}'\n" for p in segs))
     out = BUILD / f"video_{n}.mp4"
